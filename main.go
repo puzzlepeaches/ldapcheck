@@ -118,7 +118,11 @@ func main() {
 			ldapURL := fmt.Sprintf("ldap://%s:389", target)
 			l, err := ldap.DialURL(ldapURL, dialOpts...)
 			if err != nil {
-				log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
+				if strings.Contains(err.Error(), "i/o timeout") {
+					fmt.Printf("\tUnable to connect to LDAP (389): Connection timed out\n")
+				} else {
+					log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
+				}
 				continue
 			}
 			defer l.Close()
@@ -146,7 +150,11 @@ func main() {
 		ldapsURL := fmt.Sprintf("ldaps://%s:636", target)
 		ls, err := ldap.DialURL(ldapsURL, dialOpts...)
 		if err != nil {
-			log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
+			if strings.Contains(err.Error(), "i/o timeout") {
+				fmt.Printf("\tUnable to connect to LDAPS (636): Connection timed out\n")
+			} else {
+				log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
+			}
 			continue
 		}
 		defer ls.Close()
