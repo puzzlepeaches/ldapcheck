@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -107,6 +108,7 @@ func main() {
 	// For LDAP connections
 	dialOpts := []ldap.DialOpt{
 		ldap.DialWithDialer(&net.Dialer{Timeout: timeout}),
+		ldap.DialWithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 	}
 
 	for _, target := range targets {
