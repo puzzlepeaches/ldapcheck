@@ -34,6 +34,7 @@ var (
 	relayFile string
 	dcFile    string
 	relayLst  []string
+	dcLst     []string
 	timeout   time.Duration
 )
 
