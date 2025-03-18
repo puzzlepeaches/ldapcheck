@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	// use our own go-ldap so we can ensure we dont include CBT
 	"github.com/DriftSec/ldapcheck/ldap"
@@ -31,7 +31,9 @@ var (
 	domain    string
 	domQuery  string
 	relayFile string
+	dcFile    string
 	relayLst  []string
+	timeout   time.Duration
 )
 
 func main() {
@@ -40,7 +42,9 @@ func main() {
 	flag.StringVar(&dom_user, "u", "", "username, formats: user@domain or domain\\user")
 	flag.StringVar(&pass, "p", "", "user password")
 	flag.StringVar(&hash, "H", "", "user NTLM hash")
-	flag.StringVar(&relayFile, "o", "", "generate a relay list for use with ntlmrelayx.py")
+	flag.StringVar(&relayFile, "relay-out", "", "output file for relay targets (format: ldap[s]://host)")
+	flag.StringVar(&dcFile, "dc-out", "", "output file for discovered DCs (one per line)")
+	flag.DurationVar(&timeout, "timeout", 5*time.Second, "timeout for LDAP connections")
 	flag.Parse()
 
 	if targetArg == "" && domQuery == "" {
@@ -99,16 +103,21 @@ func main() {
 	if len(targets) < 1 {
 		log.Fatal("[ERROR] No targets!")
 	}
-	for _, target := range targets {
 
+	// For LDAP connections
+	dialOpts := []ldap.DialOpt{
+		ldap.DialWithDialer(&net.Dialer{Timeout: timeout}),
+	}
+
+	for _, target := range targets {
 		fmt.Println("[!] Checking " + target)
 		// Check LDAP for signing, if we have creds
 		if dom_user != "" {
-			ldapURL := "ldap://" + target + ":389"
-
-			l, err := ldap.DialURL(ldapURL)
+			ldapURL := fmt.Sprintf("ldap://%s:389", target)
+			l, err := ldap.DialURL(ldapURL, dialOpts...)
 			if err != nil {
-				log.Fatal(err)
+				log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
+				continue
 			}
 			defer l.Close()
 
@@ -128,16 +137,15 @@ func main() {
 			} else {
 				fmt.Println(colorGreen + "	signing is NOT enforced, we can relay to ldap://" + target + colorReset)
 				relayLst = append(relayLst, "ldap://"+target)
-
 			}
 		}
 
 		// Check LDAPS for channel binding
-		ldapsURL := "ldaps://" + target + ":636"
-
-		ls, err := ldap.DialURL(ldapsURL, ldap.DialWithTLSConfig(&tls.Config{InsecureSkipVerify: true}))
+		ldapsURL := fmt.Sprintf("ldaps://%s:636", target)
+		ls, err := ldap.DialURL(ldapsURL, dialOpts...)
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
+			continue
 		}
 		defer ls.Close()
 		err = ls.NTLMBind("blah", "blah", "blah")
