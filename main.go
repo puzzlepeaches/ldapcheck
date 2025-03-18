@@ -113,6 +113,8 @@ func main() {
 
 	for _, target := range targets {
 		fmt.Println("[!] Checking " + target)
+		successfulConnection := false
+
 		// Check LDAP for signing, if we have creds
 		if dom_user != "" {
 			ldapURL := fmt.Sprintf("ldap://%s:389", target)
@@ -123,26 +125,26 @@ func main() {
 				} else {
 					log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
 				}
-				continue
-			}
-			defer l.Close()
-
-			// err = l.Bind(user+"@"+domain, pass)
-			if pass != "" {
-				err = l.NTLMBind(domain, user, pass)
-			} else if hash != "" {
-				err = l.NTLMBindWithHash(domain, user, hash)
 			} else {
-				log.Fatal("[ERROR] Must specify -p or -H to authenticate")
-			}
+				defer l.Close()
+				successfulConnection = true
+				// err = l.Bind(user+"@"+domain, pass)
+				if pass != "" {
+					err = l.NTLMBind(domain, user, pass)
+				} else if hash != "" {
+					err = l.NTLMBindWithHash(domain, user, hash)
+				} else {
+					log.Fatal("[ERROR] Must specify -p or -H to authenticate")
+				}
 
-			if err != nil && strings.Contains(err.Error(), "Strong Auth Required") {
-				fmt.Println(colorRed + "	signing is enforced on ldap://" + target + colorReset)
-			} else if err != nil && strings.Contains(err.Error(), "Invalid Credentials") {
-				fmt.Println("LDAP: Auth Failed,  valid creds are required to check signing!")
-			} else {
-				fmt.Println(colorGreen + "	signing is NOT enforced, we can relay to ldap://" + target + colorReset)
-				relayLst = append(relayLst, "ldap://"+target)
+				if err != nil && strings.Contains(err.Error(), "Strong Auth Required") {
+					fmt.Println(colorRed + "	signing is enforced on ldap://" + target + colorReset)
+				} else if err != nil && strings.Contains(err.Error(), "Invalid Credentials") {
+					fmt.Println("LDAP: Auth Failed,  valid creds are required to check signing!")
+				} else {
+					fmt.Println(colorGreen + "	signing is NOT enforced, we can relay to ldap://" + target + colorReset)
+					relayLst = append(relayLst, "ldap://"+target)
+				}
 			}
 		}
 
@@ -155,17 +157,32 @@ func main() {
 			} else {
 				log.Printf("[ERROR] Failed to connect to %s: %v", target, err)
 			}
-			continue
-		}
-		defer ls.Close()
-		err = ls.NTLMBind("blah", "blah", "blah")
-		if err != nil && strings.Contains(err.Error(), "data 80090346") {
-			fmt.Println(colorRed + "	channel binding is enforced on ldaps://" + target + colorReset)
 		} else {
-			fmt.Println(colorGreen + "	channel binding is NOT enforced, we can relay to ldaps://" + target + colorReset)
-			relayLst = append(relayLst, "ldaps://"+target)
+			defer ls.Close()
+			successfulConnection = true
+			err = ls.NTLMBind("blah", "blah", "blah")
+			if err != nil && strings.Contains(err.Error(), "data 80090346") {
+				fmt.Println(colorRed + "	channel binding is enforced on ldaps://" + target + colorReset)
+			} else {
+				fmt.Println(colorGreen + "	channel binding is NOT enforced, we can relay to ldaps://" + target + colorReset)
+				relayLst = append(relayLst, "ldaps://"+target)
+			}
+		}
+
+		// Add to DC list only if we had at least one successful connection
+		if successfulConnection && dcFile != "" {
+			dcLst = append(dcLst, target)
 		}
 	}
+
+	// Write files at the end
+	if len(dcLst) > 0 && dcFile != "" {
+		err := writeLines(dcLst, dcFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	if len(relayLst) > 0 && relayFile != "" {
 		err := writeLines(relayLst, relayFile)
 		if err != nil {
